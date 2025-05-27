@@ -1,29 +1,89 @@
 import { createBrowserClient } from '@supabase/ssr'
 import { type Provider } from '@supabase/supabase-js'
-import type { Database, Profile } from '../../types/database'
+import type { Database } from '../../types/database'
 
-export type AuthError = {
-  message: string
-  status?: number
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Missing Supabase environment variables')
 }
 
-const supabase = createBrowserClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+export const createClient = () => {
+  return createBrowserClient<Database>(
+    supabaseUrl,
+    supabaseKey,
+    {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    }
+  )
+}
+
+const supabase = createClient()
+
+export async function signUpWithEmail(email: string, password: string, role: 'buyer' | 'seller') {
+  try {
+    // Determine the redirect URL based on environment
+    const redirectTo = process.env.NEXT_PUBLIC_SITE_URL || location.origin
+    
+    const { data: authData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${redirectTo}/auth/callback`,
+        data: {
+          role: role,
+          is_verified: role === 'buyer'
+        }
+      },
+    })
+
+    if (signUpError) {
+      return { error: { message: signUpError.message, status: signUpError.status } }
+    }
+
+    return { data: authData, error: null }
+  } catch (error) {
+    return {
+      error: {
+        message: 'An unexpected error occurred during sign up.',
+        status: 500,
+      },
+    }
+  }
+}
 
 export async function signInWithEmail(email: string, password: string) {
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
 
-    if (error) {
-      return { error: { message: error.message, status: error.status } }
+    if (signInError) {
+      return { error: { message: signInError.message, status: signInError.status } }
     }
 
-    return { data, error: null }
+    // Check if user has a profile
+    if (authData.user) {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', authData.user.id)
+        .single()
+
+      if (profileError) {
+        return { error: { message: profileError.message, status: profileError.code } }
+      }
+
+      return { data: { user: authData.user, profile }, error: null }
+    }
+
+    return { data: { user: authData.user, profile: null }, error: null }
   } catch (error) {
     return {
       error: {

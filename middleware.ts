@@ -2,7 +2,20 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { Profile } from './types/database'
 
+// Ensure environment variables are available
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Missing Supabase environment variables')
+}
+
 export async function middleware(request: NextRequest) {
+  // Don't run middleware on the home page
+  if (request.nextUrl.pathname === '/') {
+    return NextResponse.next()
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -55,7 +68,6 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // Refresh session if expired
   await supabase.auth.getSession()
 
   const {
@@ -128,9 +140,11 @@ export async function middleware(request: NextRequest) {
 // Update the matcher to include all protected routes
 export const config = {
   matcher: [
-    '/auth/:path*',
-    '/buyer/:path*',
-    '/seller/:path*',
-    '/dashboard',
+    /*
+     * Match all request paths except:
+     * - Root path (/)
+     * - Static files (_next/static, favicon.ico, etc.)
+     */
+    '/((?!$|_next/static|_next/image|favicon.ico).*)',
   ],
 } 

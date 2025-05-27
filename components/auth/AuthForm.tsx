@@ -3,9 +3,18 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import clsx from 'clsx'
-import { signInWithEmail, signInWithGoogle, signInWithPhone, verifyOtp } from '../../lib/supabase/client'
+import { signInWithEmail, signInWithGoogle, signInWithPhone, verifyOtp, signUpWithEmail } from '../../lib/supabase/client'
 import { authFormSchema, otpFormSchema } from '../../lib/validations/auth'
 import type { AuthFormData, AuthMethod, AuthState, OtpFormData } from '../../types/auth'
+import type { Profile } from '../../types/database'
+
+interface AuthData {
+  user: any;
+  profile?: Profile | null;
+  session?: any;
+}
+
+type AuthMode = 'login' | 'signup'
 
 export default function AuthForm() {
   const router = useRouter()
@@ -15,6 +24,7 @@ export default function AuthForm() {
     verificationSent: false,
   })
   const [authMethod, setAuthMethod] = useState<AuthMethod>('email')
+  const [authMode, setAuthMode] = useState<AuthMode>('login')
 
   const {
     register,
@@ -43,9 +53,24 @@ export default function AuthForm() {
 
     try {
       if (authMethod === 'email' && data.email && data.password) {
-        const { error } = await signInWithEmail(data.email, data.password)
-        if (error) throw new Error(error.message)
-        router.push(`/${role}/dashboard`)
+        if (authMode === 'login') {
+          const { data: authData, error } = await signInWithEmail(data.email, data.password)
+          if (error) throw new Error(error.message)
+          
+          const typedAuthData = authData as AuthData
+          if (typedAuthData?.profile) {
+            router.push(`/${typedAuthData.profile.role}/dashboard`)
+          } else {
+            router.push('/auth/role')
+          }
+        } else {
+          // Sign up flow
+          const { error } = await signUpWithEmail(data.email, data.password, data.role)
+          if (error) throw new Error(error.message)
+          
+          // After successful signup, redirect to role selection
+          router.push('/auth/role')
+        }
       } else if (authMethod === 'phone' && data.phone) {
         const { error } = await signInWithPhone(data.phone)
         if (error) throw new Error(error.message)
@@ -71,7 +96,7 @@ export default function AuthForm() {
     try {
       const { error } = await verifyOtp(data.phone, data.token)
       if (error) throw new Error(error.message)
-      router.push(`/${role}/dashboard`)
+      router.push('/auth/role')
     } catch (error) {
       setAuthState((prev) => ({
         ...prev,
@@ -143,10 +168,41 @@ export default function AuthForm() {
   return (
     <div className="w-full max-w-md space-y-8">
       <div className="text-center">
-        <h2 className="text-2xl font-bold">Sign In to LastBite</h2>
+        <h2 className="text-2xl font-bold">
+          {authMode === 'login' ? 'Sign In to LastBite' : 'Create an Account'}
+        </h2>
         <p className="mt-2 text-gray-600">
-          Choose your preferred sign in method
+          {authMode === 'login'
+            ? 'Welcome back! Please sign in to continue.'
+            : 'Join LastBite to start reducing food waste'}
         </p>
+      </div>
+
+      <div className="flex justify-center space-x-4">
+        <button
+          type="button"
+          onClick={() => setAuthMode('login')}
+          className={clsx(
+            'rounded-md px-4 py-2',
+            authMode === 'login'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-700'
+          )}
+        >
+          Log In
+        </button>
+        <button
+          type="button"
+          onClick={() => setAuthMode('signup')}
+          className={clsx(
+            'rounded-md px-4 py-2',
+            authMode === 'signup'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-700'
+          )}
+        >
+          Sign Up
+        </button>
       </div>
 
       <div className="flex justify-center space-x-4">
@@ -178,19 +234,6 @@ export default function AuthForm() {
 
       <form onSubmit={handleSubmit(onSubmit)} className="mt-8 space-y-6">
         <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
-              I am a...
-            </label>
-            <select
-              {...register('role')}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-            >
-              <option value="buyer">Buyer</option>
-              <option value="seller">Seller</option>
-            </select>
-          </div>
-
           {authMethod === 'email' && (
             <>
               <div>
@@ -263,10 +306,10 @@ export default function AuthForm() {
             className="w-full rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {authState.isLoading
-              ? 'Signing in...'
-              : authMethod === 'phone'
-              ? 'Send Code'
-              : 'Sign In'}
+              ? 'Processing...'
+              : authMode === 'login'
+              ? (authMethod === 'phone' ? 'Send Code' : 'Sign In')
+              : (authMethod === 'phone' ? 'Send Code' : 'Sign Up')}
           </button>
 
           <div className="relative">
@@ -303,7 +346,9 @@ export default function AuthForm() {
                   fill="#EA4335"
                 />
               </svg>
-              <span className="ml-2">Google</span>
+              <span className="ml-2">
+                {authMode === 'login' ? 'Sign in with Google' : 'Sign up with Google'}
+              </span>
             </div>
           </button>
         </div>
